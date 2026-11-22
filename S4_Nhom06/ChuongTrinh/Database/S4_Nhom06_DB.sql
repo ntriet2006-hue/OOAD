@@ -1,0 +1,26 @@
+-- Cai lan dau tren MySQL moi.
+CREATE DATABASE ooad_hotel CHARACTER SET utf8mb4;
+USE ooad_hotel;
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS Employee(id INTEGER PRIMARY KEY AUTO_INCREMENT, role VARCHAR(255) NOT NULL);
+CREATE TABLE IF NOT EXISTS Account(username VARCHAR(255) PRIMARY KEY, employee_id INTEGER, FOREIGN KEY (employee_id) REFERENCES Employee(id), salt VARCHAR(255) NOT NULL,digest VARCHAR(255) NOT NULL);
+CREATE TABLE IF NOT EXISTS Guest(id INTEGER PRIMARY KEY AUTO_INCREMENT,full_name VARCHAR(255) NOT NULL,identity_card VARCHAR(255) UNIQUE,phone_number VARCHAR(255),gender VARCHAR(255),date_of_birth VARCHAR(255),email VARCHAR(255),address VARCHAR(255),nationality VARCHAR(255),guest_type VARCHAR(255) DEFAULT 'normal');
+CREATE TABLE IF NOT EXISTS RoomType(id INTEGER PRIMARY KEY AUTO_INCREMENT,name VARCHAR(255) UNIQUE,capacity INTEGER NOT NULL,base_price INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS Room(id INTEGER PRIMARY KEY AUTO_INCREMENT,room_number VARCHAR(255) UNIQUE,room_type_id INTEGER, FOREIGN KEY (room_type_id) REFERENCES RoomType(id),status VARCHAR(255) NOT NULL,is_deleted INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS Booking(id INTEGER PRIMARY KEY AUTO_INCREMENT,guest_id INTEGER NOT NULL, FOREIGN KEY (guest_id) REFERENCES Guest(id),employee_id INTEGER, FOREIGN KEY (employee_id) REFERENCES Employee(id),booking_date DATETIME DEFAULT CURRENT_TIMESTAMP,check_in_date DATE NOT NULL,check_out_date DATE NOT NULL,num_adults INTEGER,num_children INTEGER,source VARCHAR(255),deposit INTEGER,status VARCHAR(255),note VARCHAR(255),CHECK(check_out_date>check_in_date));
+CREATE TABLE IF NOT EXISTS BookingDetail(id INTEGER PRIMARY KEY AUTO_INCREMENT,booking_id INTEGER, FOREIGN KEY (booking_id) REFERENCES Booking(id),room_id INTEGER, FOREIGN KEY (room_id) REFERENCES Room(id),price_per_night INTEGER NOT NULL,actual_check_in DATETIME,actual_check_out DATETIME,UNIQUE(booking_id,room_id));
+CREATE TABLE IF NOT EXISTS Service(id INTEGER PRIMARY KEY AUTO_INCREMENT,name VARCHAR(255) NOT NULL UNIQUE,category VARCHAR(255),unit VARCHAR(255),price INTEGER NOT NULL CHECK(price>=0),description VARCHAR(255),status VARCHAR(255) CHECK(status IN ('active','inactive')));
+CREATE TABLE IF NOT EXISTS ServiceUsage(id INTEGER PRIMARY KEY AUTO_INCREMENT,booking_detail_id INTEGER NOT NULL, FOREIGN KEY (booking_detail_id) REFERENCES BookingDetail(id),service_id INTEGER NOT NULL, FOREIGN KEY (service_id) REFERENCES Service(id) ON DELETE RESTRICT,employee_id INTEGER, FOREIGN KEY (employee_id) REFERENCES Employee(id),quantity INTEGER CHECK(quantity>0),unit_price INTEGER CHECK(unit_price>=0),used_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS Setting(setting_key VARCHAR(255) PRIMARY KEY,value INTEGER);
+START TRANSACTION;
+INSERT INTO Setting VALUES('min_deposit',100000);
+INSERT INTO Employee VALUES(1,'Quản lý'),(2,'Lễ tân');
+INSERT INTO Guest(full_name,identity_card) VALUES('Nguyễn An','DEMO001'),('Trần Bình','DEMO002');
+INSERT INTO RoomType VALUES(1,'Tiêu chuẩn',2,500000),(2,'Gia đình',4,750000);
+INSERT INTO Room VALUES(1,'101',1,'available',0),(2,'102',1,'available',0),(3,'201',2,'available',0),(4,'202',2,'occupied',0),(5,'203',2,'maintenance',0);
+INSERT INTO Service VALUES(1,'Giặt ủi','Giặt ủi','kg',35000,'','active'),(2,'Nước suối','Đồ uống','chai',15000,'','active');
+INSERT INTO Account VALUES('quanly',1,'defa995aad343ad97a3c60d969f600c8','0efc1ef769176a7193becf4cff6e00cc72d4059d7a3869cf31ec512079e0c664');
+INSERT INTO Account VALUES('letan',2,'5b92199bd5aca054d93a4dc699dac4c8','a81a705cde27531a06f37737ac1ef199bdfc0b31cf479ba7477f57660288635f');
+INSERT INTO Booking(guest_id,employee_id,check_in_date,check_out_date,num_adults,num_children,source,deposit,status,note) VALUES(1,2,CURDATE(),DATE_ADD(CURDATE(),INTERVAL 2 DAY),1,0,'walk_in',0,'checked_in','Phòng mẫu');
+INSERT INTO BookingDetail(booking_id,room_id,price_per_night,actual_check_in) VALUES(LAST_INSERT_ID(),4,750000,NOW());
+COMMIT;

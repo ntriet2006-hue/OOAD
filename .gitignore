@@ -1,0 +1,8 @@
+.venv/
+.mysql-data/
+__pycache__/
+*.db
+mysql-local/
+
+**/bin/
+**/obj/
