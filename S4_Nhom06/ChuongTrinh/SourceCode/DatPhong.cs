@@ -2,10 +2,10 @@ using System.Data;
 
 record YeuCau(DateTime Nhan, DateTime Tra, int Lon, int Nho, string Loai);
 
-sealed class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
+sealed partial class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
 {
     public DataTable Khach() => db.Doc("SELECT id,CONCAT(full_name,' · ',COALESCE(identity_card,'')) AS ten FROM Guest ORDER BY full_name");
-    public DataTable Loai() => db.Doc("SELECT name FROM RoomType ORDER BY name");
+    public DataTable Loai() => db.Doc("SELECT id,name FROM RoomType ORDER BY name");
     public DataTable LichSu() => db.Doc("""
         SELECT b.id AS 'Mã đặt',g.full_name AS 'Khách',
         GROUP_CONCAT(r.room_number ORDER BY r.room_number) AS 'Phòng',
@@ -18,19 +18,10 @@ sealed class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
         GROUP BY b.id ORDER BY b.id DESC
         """);
 
-    public DataTable Tim(YeuCau y)
+    public DataTable Tim(YeuCau y,int boQuaDatPhong=0)
     {
         KiemTraYeuCau(y);
-        return db.Doc("""
-            SELECT r.id,r.room_number AS 'Phòng',t.name AS 'Loại',t.capacity AS 'Sức chứa',
-            t.base_price AS 'Đơn giá',t.base_price*@p0 AS 'Tạm tính'
-            FROM Room r JOIN RoomType t ON t.id=r.room_type_id
-            WHERE r.is_deleted=0 AND r.status!='maintenance' AND (@p1='' OR t.name=@p1)
-            AND NOT EXISTS(SELECT 1 FROM BookingDetail d JOIN Booking b ON b.id=d.booking_id
-              WHERE d.room_id=r.id AND b.status!='cancelled'
-                AND b.check_in_date<@p2 AND @p3<b.check_out_date)
-            ORDER BY r.room_number
-            """, (y.Tra-y.Nhan).Days, y.Loai, y.Tra, y.Nhan);
+        return Room.DanhSachPhongTrong(db,y,boQuaDatPhong);
     }
 
     internal static void KiemTraYeuCau(YeuCau y)
@@ -55,15 +46,6 @@ sealed class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
         {
             var rooms = ids.Distinct().Order().Select(id => Room.DocVaKhoa(db, id)).ToList();
             if (rooms.Count == 0) throw new Exception("Chọn ít nhất một phòng.");
-            var minimum = decimal.Parse(db.Doc(
-                "SELECT setting_value FROM Setting WHERE setting_key='min_deposit'").Rows[0][0].ToString()!);
-            if (coc < minimum) throw new Exception("Tiền đặt cọc chưa đạt mức tối thiểu.");
-            foreach (var room in rooms)
-                if (!room.kiemTraPhongTrong(y.Nhan, y.Tra))
-                    throw new Exception("Phòng đã được đặt. Vui lòng chọn phòng khác.");
-            if (rooms.Sum(r => (long)r.Capacity) < (long)y.Lon+y.Nho)
-                throw new Exception("Tổng sức chứa chưa đủ.");
-
             // Hồ sơ mới cùng giao dịch: tạo đặt phòng thất bại thì không lưu khách lẻ.
             var khach = guest == 0 ? Guest.Tao(db, profile) : Guest.Doc(db, guest);
             var booking = new Booking(db, khach, nv, y, rooms, coc, nguon, note);
@@ -79,7 +61,7 @@ sealed partial class Booking
     readonly int detail;
     readonly Guest? guest;
     readonly NhanVien? employee;
-    readonly IReadOnlyList<Room> rooms = [];
+    IReadOnlyList<Room> rooms = [];
 
     public int Id { get; private set; }
     public DateTime BookingDate { get; private set; }
@@ -100,28 +82,42 @@ sealed partial class Booking
         this.detail = detail;
     }
 
-    public Booking(CoSoDuLieu db, Guest guest, NhanVien employee, YeuCau y,
+    public Booking(CoSoDuLieu db, Guest guest, NhanVien? employee, YeuCau y,
         IReadOnlyList<Room> rooms, decimal deposit, string source, string note)
     {
         this.db=db; this.guest=guest; this.employee=employee; this.rooms=rooms;
         CheckInDate=y.Nhan; CheckOutDate=y.Tra; NumAdults=y.Lon; NumChildren=y.Nho;
-        Deposit=(double)deposit; Source=source; Note=note; Status="confirmed";
+        Deposit=(double)deposit; Source=source; Note=note; Status=source=="online"?"pending":"confirmed";
     }
 
     // CD Booking.taoDatPhong(): boolean. Control đã mở giao dịch và khóa phòng.
     public bool taoDatPhong()
     {
-        if (guest is null || employee is null || rooms.Count == 0 || Id != 0) return false;
+        if (guest is null || (employee is null && Source!="online") || rooms.Count == 0 || Id != 0) return false;
+        // SD UC4.2: Booking kiem tra coc truoc khi kiem tra tung phong.
+        // UC4.6 khong yeu cau coc: nguon online duoc luu pending, deposit=0.
+        DuLieuNhap.Tien((decimal)Deposit);
+        if(Source!="online")
+        {
+            var settings=db.Doc("SELECT setting_value FROM Setting WHERE setting_key='min_deposit'").Rows;
+            if(settings.Count==0 || !decimal.TryParse(settings[0][0].ToString(),
+                System.Globalization.NumberStyles.Number,System.Globalization.CultureInfo.InvariantCulture,out var minimum) || minimum<0)
+                throw new Exception("Chưa cấu hình mức đặt cọc tối thiểu hợp lệ.");
+            if((decimal)Deposit<minimum)throw new Exception("Tiền đặt cọc chưa đạt mức tối thiểu.");
+        }
         foreach (var room in rooms)
             if (!room.kiemTraPhongTrong(CheckInDate, CheckOutDate))
                 throw new Exception("Phòng đã được đặt. Vui lòng chọn phòng khác.");
 
+        if(rooms.Sum(r=>(long)r.Capacity)<(long)NumAdults+NumChildren)
+            throw new Exception("Tổng sức chứa chưa đủ.");
+        DuLieuNhap.Tien(rooms.Sum(r=>r.BasePrice)*(CheckOutDate-CheckInDate).Days);
         BookingDate=DateTime.Now;
         Id=checked((int)db.Ghi("""
             INSERT INTO Booking(guest_id,employee_id,booking_date,check_in_date,check_out_date,
               num_adults,num_children,source,deposit,status,note)
             VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10)
-            """, guest.Id,employee.Id,BookingDate,CheckInDate,CheckOutDate,
+            """, guest.Id,employee?.Id,BookingDate,CheckInDate,CheckOutDate,
             NumAdults,NumChildren,Source,(decimal)Deposit,Status,Note));
         foreach (var room in rooms)
         {

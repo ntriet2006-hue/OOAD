@@ -16,23 +16,31 @@ async function api(path,body){
 }
 function action(fn){return async e=>{e?.preventDefault();const b=e?.submitter;if(b)b.disabled=true;try{await fn(e)}catch(err){notice(err.message,true)}finally{if(b)b.disabled=false}}}
 function options(id,items,key,text){const previous=$(id).value;$(id).innerHTML=items.map(r=>'<option value="'+escape(r[key])+'">'+escape(r[text])+'</option>').join('');if([...$(id).options].some(o=>o.value===previous))$(id).value=previous}
-function table(id,rows,extra=''){if(!rows.length){$(id).innerHTML='<p>Chưa có dữ liệu.</p>';return}let keys=Object.keys(rows[0]);$(id).innerHTML='<table><thead><tr>'+keys.map(k=>'<th>'+escape(k)+'</th>').join('')+(extra?'<th>Thao tác</th>':'')+'</tr></thead><tbody>'+rows.map((r,i)=>'<tr>'+keys.map(k=>'<td>'+escape(/Ngày/.test(k)&&typeof r[k]==='string'?r[k].slice(0,10).split('-').reverse().join('/'):r[k])+'</td>').join('')+(extra?'<td>'+extra(i)+'</td>':'')+'</tr>').join('')+'</tbody></table>'}
+function table(id,rows,extra=''){if(!rows.length){$(id).innerHTML='<div class="empty">Chưa có dữ liệu để hiển thị.</div>';return}let keys=Object.keys(rows[0]);$(id).innerHTML='<table><thead><tr>'+keys.map(k=>'<th>'+escape(k)+'</th>').join('')+(extra?'<th>Thao tác</th>':'')+'</tr></thead><tbody>'+rows.map((r,i)=>'<tr>'+keys.map(k=>'<td>'+cell(k,r[k])+'</td>').join('')+(extra?'<td>'+extra(i)+'</td>':'')+'</tr>').join('')+'</tbody></table>'}
+function cell(k,v){
+ if(/Ngày/.test(k)&&typeof v==='string')return escape(v.slice(0,10).split('-').reverse().join('/'));
+ if(['Đơn giá','Thành tiền'].includes(k)&&typeof v==='number')return '<span class="money">'+money(v)+'</span>';
+ if(k==='Trạng thái')return '<span class="pill '+(/Ngừng|Hủy/.test(v)?'muted':'')+'">'+escape(v)+'</span>';
+ return escape(v);
+}
+function stats(id,items){$(id).innerHTML=items.map(([label,value])=>'<div class="stat"><span>'+escape(label)+'</span><strong>'+escape(value)+'</strong></div>').join('')}
 async function load(){
  data=await api('data');$('#role').textContent=data.role;$('#addService').hidden=data.role!=='Quản lý';
  const old=$('#guest').value;options('#guest',[...data.guests,{id:0,ten:'Khách mới'}],'id','ten');if([...$('#guest').options].some(x=>x.value===old))$('#guest').value=old;
  options('#type',[{name:'Tất cả'},...data.types],'name','name');
  options('#stay',data.stays,'id','ten');options('#activeService',data.services.filter(s=>s.status==='active'),'id','name');
  table('#bookings',data.bookings);
+ stats('#bookingStats',[['Lượt đặt phòng',data.bookings.length],['Phòng đang lưu trú',data.stays.length],['Khách hàng',data.guests.length]]);
+ stats('#serviceStats',[['Dịch vụ trong danh mục',data.services.length],['Đang cung cấp',data.services.filter(s=>s.status==='active').length],['Phòng đang lưu trú',data.stays.length]]);
  table('#catalog',data.services.map(s=>({'Tên dịch vụ':s.name,'Nhóm':s.category,'Đơn vị':s.unit,'Đơn giá':money(s.price),'Trạng thái':s.status==='active'?'Đang cung cấp':'Ngừng cung cấp'})),data.role==='Quản lý'?i=>'<button class="secondary" data-edit="'+i+'">Sửa</button><button class="secondary" data-delete="'+i+'">Xóa</button>':'');
  await usageLog();
 }
-async function usageLog(){const rows=$('#stay').value?await api('usage?detail='+$('#stay').value):[];table('#usageLog',rows);$('#usageTotal').textContent='Tổng dịch vụ của phòng: '+money(rows.reduce((a,r)=>a+Number(r['Thành tiền']),0))}
+async function usageLog(){const detail=$('#stay').value;const rows=detail?await api('usage?detail='+detail):[];if($('#stay').value!==detail)return;table('#usageLog',rows);$('#usageTotal').textContent='Tổng dịch vụ của phòng: '+money(rows.reduce((a,r)=>a+Number(r['Thành tiền']),0))}
 async function enter(){await load();$('#login').hidden=true;$('#workspace').hidden=false}
-$('#loginForm').onsubmit=action(async()=>{let q=Object.fromEntries(new FormData($('#loginForm')));await api('login',q);$('#loginForm').password.value='';await enter()});
+$('#loginForm').onsubmit=action(async()=>{const session=await api('session');csrf=session.csrf;let q=Object.fromEntries(new FormData($('#loginForm')));await api('login',q);$('#loginForm').password.value='';await enter()});
 $('#logout').onclick=action(async()=>{await api('logout',{});location.reload()});
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));$('#booking').hidden=b.dataset.tab!=='booking';$('#services').hidden=b.dataset.tab!=='services'});
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelector('#prototype').innerHTML='';document.querySelector('#bookingPrototype').innerHTML='';document.querySelector('#bookingLive').hidden=false;document.querySelector('#bookingPrototype').hidden=true;document.querySelectorAll('[data-booking-view]').forEach(x=>x.classList.toggle('active',x.dataset.bookingView==='live'));document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));$('#booking').hidden=b.dataset.tab!=='booking';$('#services').hidden=b.dataset.tab!=='services';$('#prototype').hidden=['booking','services'].includes(b.dataset.tab);if(!$('#prototype').hidden)window.moManHinh?.(b.dataset.tab);window.scrollTo({top:0,behavior:'instant'})});
 const date=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
-$('#today').textContent=new Date().toLocaleDateString('vi-VN',{dateStyle:'long'});
 $('#search').nhan.value=date(new Date());$('#search').tra.value=date(new Date(Date.now()+86400000));
 $('#search').oninput=()=>{criteria=null;$('#rooms').innerHTML='';$('#selection').textContent='Điều kiện đã đổi. Hãy tìm phòng lại.'};
 $('#search').onsubmit=action(async()=>{

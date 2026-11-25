@@ -21,6 +21,12 @@ sealed record Service(CoSoDuLieu Db, int Id, string Name,string Category,string 
     }
     public void capNhatThongTin()=>Db.Ghi("UPDATE Service SET name=@p0,category=@p1,unit=@p2,price=@p3,description=@p4,status=@p5 WHERE id=@p6",Name,Category,Unit,(decimal)Price,Description,Status,Id);
     public bool kiemTraConCungCap()=>Status=="active";
+    // SD 3.1.45: lifeline Dich vu tinh thanh tien truoc khi ghi vao Dat phong.
+    public double tinhThanhTien(int soLuong)
+    {
+        if(soLuong<=0)throw new Exception("Số lượng phải lớn hơn 0.");
+        return soLuong*Price;
+    }
     public void Xoa()
     {
         if(Db.Doc("SELECT id FROM ServiceUsage WHERE service_id=@p0 LIMIT 1",Id).Rows.Count>0)
@@ -30,7 +36,7 @@ sealed record Service(CoSoDuLieu Db, int Id, string Name,string Category,string 
 }
 sealed class ServiceUsage(CoSoDuLieu db,int detail,Service service,int employee,int quantity)
 {
-    public long Id {get; private set;}
+    public int Id {get; private set;}
     public int Quantity {get; private set;} = quantity > 0 ? quantity : throw new Exception("Số lượng phải lớn hơn 0.");
     public double UnitPrice {get;}=service.Price;
     public DateTime UsedAt {get;}=DateTime.Now;
@@ -38,7 +44,7 @@ sealed class ServiceUsage(CoSoDuLieu db,int detail,Service service,int employee,
     {
         if(soLuong<=0) throw new Exception("Số lượng phải lớn hơn 0.");
         Quantity=soLuong;
-        Id=db.Ghi("INSERT INTO ServiceUsage(booking_detail_id,service_id,employee_id,quantity,unit_price,used_at) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",detail,service.Id,employee,Quantity,(decimal)UnitPrice,UsedAt);
+        Id=checked((int)db.Ghi("INSERT INTO ServiceUsage(booking_detail_id,service_id,employee_id,quantity,unit_price,used_at) VALUES(@p0,@p1,@p2,@p3,@p4,@p5)",detail,service.Id,employee,Quantity,(decimal)UnitPrice,UsedAt));
         return Id>0;
     }
     public double tinhThanhTien()=>Quantity*UnitPrice;
@@ -69,11 +75,9 @@ sealed class DieuKhienDichVu(CoSoDuLieu db,NhanVien nv)
         booking.KiemTraDangO();
         var service=Service.Doc(db,key,true);
         if(!service.kiemTraConCungCap()) throw new Exception("Dịch vụ hiện không được cung cấp.");
+        var thanhTien=service.tinhThanhTien(qty);
         var usage=new ServiceUsage(db,detail,service,nv.Id,qty);
-        // SD mô tả bước tính tiền trong lifeline Dịch vụ.
-        // CD giao method tinhThanhTien cho ServiceUsage, nên gọi thực thể này.
-        // Tính trước khi ghi nhận vào đặt phòng theo thứ tự SD.
-        var thanhTien=usage.tinhThanhTien();
+        // Booking ghi nhan va tong hop tien, sau buoc tinh tien cua Service theo SD.
         var tong=booking.GhiNhan(usage,qty);
         return (thanhTien,tong);
     });

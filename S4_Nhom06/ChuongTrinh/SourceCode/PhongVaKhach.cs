@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net.Mail;
 
 static class DuLieuNhap
@@ -9,7 +10,7 @@ static class DuLieuNhap
     }
 }
 
-sealed record Room(CoSoDuLieu Db, int Id, string RoomNumber, int Floor,
+sealed partial record Room(CoSoDuLieu Db, int Id, string RoomNumber, int Floor,
     string Status, string Description, bool IsDeleted, int Capacity, decimal BasePrice)
 {
     public static Room DocVaKhoa(CoSoDuLieu db, int id)
@@ -25,33 +26,84 @@ sealed record Room(CoSoDuLieu Db, int Id, string RoomNumber, int Floor,
             (int)r["capacity"],(decimal)r["base_price"]);
     }
 
+    // Ngu canh chi dung tren ban sao Room cua lan sua, khong luu vao SQL.
+    internal int MaDatPhongLoaiTru { get; init; }
+
     public bool kiemTraPhongTrong(DateTime tuNgay, DateTime denNgay)
     {
         if(IsDeleted || Status=="maintenance") return false;
         return Db.Doc("""
             SELECT d.id FROM BookingDetail d JOIN Booking b ON b.id=d.booking_id
-            WHERE d.room_id=@p0 AND b.status!='cancelled'
+            WHERE d.room_id=@p0 AND b.id!=@p3 AND b.status!='cancelled'
               AND b.check_in_date<@p1 AND @p2<b.check_out_date LIMIT 1
-            """,Id,denNgay,tuNgay).Rows.Count==0;
+            """,Id,denNgay,tuNgay,MaDatPhongLoaiTru).Rows.Count==0;
+    }
+
+    // SD UC4.1: Room cung cap ung vien, tung Room doi chieu lich dat qua method CD.
+    internal static DataTable DanhSachPhongTrong(CoSoDuLieu db,YeuCau y,int maDatPhongLoaiTru=0)
+    {
+        var candidates=db.Doc("""
+            SELECT r.id,r.room_number,r.floor,r.status,r.description,r.is_deleted,
+              t.name,t.capacity,t.base_price
+            FROM Room r JOIN RoomType t ON t.id=r.room_type_id
+            WHERE r.is_deleted=0 AND r.status!='maintenance' AND (@p0='' OR t.name=@p0)
+            ORDER BY r.room_number
+            """,y.Loai);
+        var result=new DataTable();
+        result.Columns.Add("id",typeof(int));result.Columns.Add("Phòng",typeof(string));
+        result.Columns.Add("Loại",typeof(string));result.Columns.Add("Sức chứa",typeof(int));
+        result.Columns.Add("Đơn giá",typeof(decimal));result.Columns.Add("Tạm tính",typeof(decimal));
+        foreach(DataRow row in candidates.Rows)
+        {
+            var room=new Room(db,(int)row["id"],(string)row["room_number"],(int)row["floor"],
+                (string)row["status"],row["description"].ToString()!,Convert.ToBoolean(row["is_deleted"]),
+                (int)row["capacity"],(decimal)row["base_price"]){MaDatPhongLoaiTru=maDatPhongLoaiTru};
+            if(room.kiemTraPhongTrong(y.Nhan,y.Tra))
+                result.Rows.Add(room.Id,room.RoomNumber,row["name"],room.Capacity,room.BasePrice,
+                    room.BasePrice*(y.Tra-y.Nhan).Days);
+        }
+        return result;
     }
 
     public bool capNhatTrangThai(string trangThai)
     {
         if(trangThai is not ("available" or "reserved" or "occupied" or "cleaning" or "maintenance"))
             throw new Exception("Trạng thái phòng không hợp lệ.");
-        // Theo UC4.2, phòng được chọn chuyển sang Đã đặt.
-        Db.Ghi("UPDATE Room SET status=@p0 WHERE id=@p1",trangThai,Id);
+        // Lịch đặt lưu trong BookingDetail. Khách chưa trả phòng vẫn đang sử dụng
+        // phòng, kể cả khi có đặt phòng cho khoảng ngày tiếp theo.
+        Db.Ghi("""
+            UPDATE Room SET status=CASE
+              WHEN @p0='reserved' AND EXISTS(
+                SELECT d.id FROM BookingDetail d JOIN Booking b ON b.id=d.booking_id
+                WHERE d.room_id=Room.id AND b.status='checked_in'
+                  AND d.actual_check_in IS NOT NULL AND d.actual_check_out IS NULL)
+              THEN 'occupied' ELSE @p0 END
+            WHERE id=@p1
+            """,trangThai,Id);
         return true;
     }
 }
 
-sealed record Guest(CoSoDuLieu Db, int Id)
+sealed partial record Guest(CoSoDuLieu Db, int Id)
 {
     public static Guest Doc(CoSoDuLieu db,int id)
     {
-        if(db.Doc("SELECT id FROM Guest WHERE id=@p0",id).Rows.Count==0)
-            throw new Exception("Không tìm thấy khách hàng.");
-        return new(db,id);
+        var rows=db.Doc("SELECT * FROM Guest WHERE id=@p0",id).Rows;
+        if(rows.Count==0) throw new Exception("Không tìm thấy khách hàng.");
+        var row=rows[0];
+        return new(db,id)
+        {
+            FullName=(string)row["full_name"],
+            Gender=row["gender"].ToString()!,
+            DateOfBirth=row["date_of_birth"] is DateTime birth ? birth : null,
+            PhoneNumber=row["phone_number"].ToString()!,
+            Email=row["email"].ToString()!,
+            Address=row["address"].ToString()!,
+            IdentityCard=row["identity_card"].ToString()!,
+            Nationality=row["nationality"].ToString()!,
+            GuestType=(string)row["guest_type"],
+            CreatedAt=(DateTime)row["created_at"]
+        };
     }
 
     public bool kiemTraTrungGiayTo(string soGiayTo) =>
@@ -84,11 +136,31 @@ sealed record Guest(CoSoDuLieu Db, int Id)
                   email,address,nationality,guest_type,created_at)
                 VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9)
                 """,p[0],p[1],p[2],p[3]==""?null:p[3],birth,p[5],p[6],p[7],p[8],DateTime.Now);
-            return new(db,checked((int)id));
+            return Doc(db,checked((int)id));
         }
         catch(MySql.Data.MySqlClient.MySqlException e) when(e.Number==1062)
         {
             throw new Exception("Khách hàng đã tồn tại.");
         }
+    }
+}
+
+sealed partial record Room
+{
+    internal void DongBoSauDatPhong()
+    {
+        if(Status is "maintenance" or "cleaning")return;
+        var occupied=Db.Doc("SELECT d.id FROM BookingDetail d JOIN Booking b ON b.id=d.booking_id WHERE d.room_id=@p0 AND b.status='checked_in' AND d.actual_check_in IS NOT NULL AND d.actual_check_out IS NULL LIMIT 1",Id).Rows.Count>0;
+        var reserved=Db.Doc("SELECT d.id FROM BookingDetail d JOIN Booking b ON b.id=d.booking_id WHERE d.room_id=@p0 AND b.status IN ('pending','confirmed') AND b.check_out_date>CURDATE() LIMIT 1",Id).Rows.Count>0;
+        capNhatTrangThai(occupied?"occupied":reserved?"reserved":"available");
+    }
+}
+
+sealed partial record Guest
+{
+    public static Guest TaoLienHeTrucTuyen(CoSoDuLieu db,string name,string phone,string email)
+    {
+        var id=db.Ghi("INSERT INTO Guest(full_name,phone_number,email,guest_type,created_at) VALUES(@p0,@p1,@p2,'normal',NOW())",name,phone,email);
+        return Doc(db,checked((int)id));
     }
 }

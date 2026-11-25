@@ -16,7 +16,7 @@ app.Use(async(ctx,next)=>{
  try{
  if(ctx.Request.Path.StartsWithSegments("/api")){
  if(ctx.Request.Method!="GET" && (ctx.Session.GetString("csrf")==null || ctx.Request.Headers["X-CSRF"]!=ctx.Session.GetString("csrf"))){ctx.Response.StatusCode=403;return;}
- if(ctx.Request.Path!="/api/login" && ctx.Request.Path!="/api/session" && ctx.Session.GetInt32("id")==null){ctx.Response.StatusCode=401;return;}
+ if(ctx.Request.Path!="/api/login" && ctx.Request.Path!="/api/session" && !ctx.Request.Path.StartsWithSegments("/api/online") && ctx.Session.GetInt32("id")==null){ctx.Response.StatusCode=401;return;}
  }
  await next();
  }catch(MySqlException ex){app.Logger.LogError(ex,"Database operation failed");ctx.Response.StatusCode=400;await ctx.Response.WriteAsJsonAsync(new{message="Không xử lý được dữ liệu. Vui lòng tải lại và kiểm tra thông tin."});}
@@ -52,6 +52,17 @@ app.MapGet("/api/rooms",(DateTime nhan,DateTime tra,int lon,int nho,string? loai
 app.MapPost("/api/bookings",(DatPhong q,DieuKhienDatPhong b)=>{
  if(q.Nguon is not ("walk_in" or "phone"))throw new Exception("Nguồn đặt phòng không hợp lệ.");
  return new{id=b.Tao(q.Criteria,q.Rooms,q.Guest,q.Profile,q.Coc,q.Nguon,q.Note)};});
+// Quan ly dat phong: cac route nhan vien deu qua Control va kiem tra quyen.
+app.MapGet("/api/bookings/search",(string? word,DateTime? from,DateTime? to,string? status,DieuKhienDatPhong b)=>Rows(b.TimKiemDatPhong(word??"",from,to,status??"")));
+app.MapGet("/api/bookings/{id:int}",(int id,bool? edit,DieuKhienDatPhong b)=>b.ChiTietDatPhong(id,edit??false));
+app.MapGet("/api/bookings/{id:int}/rooms",(int id,DateTime nhan,DateTime tra,int lon,int nho,DieuKhienDatPhong b)=>Rows(b.PhongDeSua(id,new(nhan.Date,tra.Date,lon,nho,""))));
+app.MapPost("/api/bookings/edit",(SuaDatPhong q,DieuKhienDatPhong b)=>b.SuaDatPhong(q.Id,q.Criteria,q.Rooms,q.Note));
+app.MapGet("/api/bookings/{id:int}/cancellation",(int id,DieuKhienDatPhong b)=>b.XemPhiHuy(id));
+app.MapPost("/api/bookings/cancel",(HuyDatPhong q,DieuKhienDatPhong b)=>b.HuyDatPhong(q.Id,q.Reason));
+// Cong dat phong khach hang khong doi dang nhap, khong tra du lieu khach/nhan vien.
+app.MapGet("/api/online/types",(DieuKhienDatPhong b)=>Rows(b.Loai()));
+app.MapGet("/api/online/rooms",(DateTime nhan,DateTime tra,int lon,int nho,DieuKhienDatPhong b)=>b.LoaiPhongTrucTuyen(new(nhan.Date,tra.Date,lon,nho,"")));
+app.MapPost("/api/online/bookings",(DatTrucTuyen q,DieuKhienDatPhong b)=>b.DatPhongTrucTuyen(q.Criteria,q.TypeId,q.Count,q.Name,q.Phone,q.Email,q.Note));
 // SD sửa dịch vụ: giao diện yêu cầu chi tiết qua Control rồi Entity.
 app.MapGet("/api/services/{id:int}",(int id,DieuKhienDichVu s)=>{
  var v=s.ChiTiet(id);
@@ -68,3 +79,7 @@ record DatPhong(YeuCau Criteria,int[] Rooms,int Guest,string[] Profile,decimal C
 record DichVu(int Id,string Name,string Category,string Unit,decimal Price,string Description,string Status);
 record Ma(int Id);
 record SuDung(int Detail,int Service,int Quantity);
+
+record SuaDatPhong(int Id,YeuCau Criteria,int[] Rooms,string Note);
+record HuyDatPhong(int Id,string Reason);
+record DatTrucTuyen(YeuCau Criteria,int TypeId,int Count,string Name,string Phone,string Email,string Note);

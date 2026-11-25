@@ -1,0 +1,146 @@
+[
+  {
+    "code": "UC1.3",
+    "name": "Đổi mật khẩu"
+  },
+  {
+    "code": "UC2.1",
+    "name": "Thêm phòng"
+  },
+  {
+    "code": "UC2.2",
+    "name": "Sửa thông tin phòng"
+  },
+  {
+    "code": "UC2.3",
+    "name": "Xóa phòng"
+  },
+  {
+    "code": "UC2.4",
+    "name": "Xem chi tiết phòng"
+  },
+  {
+    "code": "UC2.5",
+    "name": "Tìm kiếm và lọc phòng"
+  },
+  {
+    "code": "UC2.6",
+    "name": "Thêm loại phòng"
+  },
+  {
+    "code": "UC2.7",
+    "name": "Cập nhật loại phòng và giá"
+  },
+  {
+    "code": "UC2.8",
+    "name": "Cập nhật trạng thái phòng"
+  },
+  {
+    "code": "UC3.2",
+    "name": "Sửa thông tin khách hàng"
+  },
+  {
+    "code": "UC3.3",
+    "name": "Xem chi tiết khách hàng"
+  },
+  {
+    "code": "UC3.4",
+    "name": "Tìm kiếm khách hàng"
+  },
+  {
+    "code": "UC5.1",
+    "name": "Nhận phòng (Check-in)"
+  },
+  {
+    "code": "UC5.2",
+    "name": "Trả phòng (Check-out)"
+  },
+  {
+    "code": "UC5.3",
+    "name": "Đổi phòng"
+  },
+  {
+    "code": "UC5.4",
+    "name": "Gia hạn lưu trú"
+  },
+  {
+    "code": "UC7.1",
+    "name": "Lập hóa đơn"
+  },
+  {
+    "code": "UC7.2",
+    "name": "Thanh toán hóa đơn"
+  },
+  {
+    "code": "UC7.3",
+    "name": "Xem và in hóa đơn"
+  },
+  {
+    "code": "UC7.4",
+    "name": "Áp dụng khuyến mãi"
+  },
+  {
+    "code": "UC8.1",
+    "name": "Thêm nhân viên"
+  },
+  {
+    "code": "UC8.2",
+    "name": "Sửa thông tin nhân viên"
+  },
+  {
+    "code": "UC8.3",
+    "name": "Xóa nhân viên"
+  },
+  {
+    "code": "UC8.4",
+    "name": "Xem chi tiết nhân viên"
+  },
+  {
+    "code": "UC8.5",
+    "name": "Tìm kiếm nhân viên"
+  },
+  {
+    "code": "UC8.6",
+    "name": "Phân ca làm việc"
+  },
+  {
+    "code": "UC9.1",
+    "name": "Báo cáo doanh thu"
+  },
+  {
+    "code": "UC9.2",
+    "name": "Báo cáo công suất phòng"
+  },
+  {
+    "code": "UC9.3",
+    "name": "Báo cáo khách hàng và đặt phòng"
+  },
+  {
+    "code": "UC9.4",
+    "name": "Xem báo cáo đã lưu"
+  },
+  {
+    "code": "UC9.5",
+    "name": "Xuất và in báo cáo"
+  },
+  {
+    "code": "UC10.1",
+    "name": "Quản lý tài khoản"
+  },
+  {
+    "code": "UC10.2",
+    "name": "Phân quyền người dùng"
+  },
+  {
+    "code": "UC10.3",
+    "name": "Cấu hình khách sạn"
+  },
+  {
+    "code": "UC10.4",
+    "name": "Quản lý chương trình khuyến mãi"
+  },
+  {
+    "code": "UC10.5",
+    "name": "Sao lưu và phục hồi dữ liệu"
+  }
+]

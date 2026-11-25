@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 Set-Location $PSScriptRoot
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $data = Join-Path $root 'mysql-local'
@@ -15,6 +15,7 @@ if (!$env:OOAD_PASSWORD -and (Test-Path (Join-Path $data 'demo-password'))) {
     $pw=Read-Host 'Mat khau MySQL' -AsSecureString
     $env:OOAD_PASSWORD=[Net.NetworkCredential]::new('',$pw).Password
 }
+if (!$env:OOAD_EMAIL_DIR) { $env:OOAD_EMAIL_DIR=Join-Path $data 'ThuXacNhan' }
 $env:ASPNETCORE_URLS='http://127.0.0.1:5086'
 Write-Host 'Mo trinh duyet tai http://127.0.0.1:5086'
 dotnet run --project KhachSan.csproj
