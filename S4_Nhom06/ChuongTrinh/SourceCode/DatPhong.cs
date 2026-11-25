@@ -1,11 +1,27 @@
 using System.Data;
 
+/// <summary>
+/// Dữ liệu yêu cầu lưu trú do giao diện gửi lên: ngày nhận/trả, số người lớn, trẻ em và loại phòng.
+/// </summary>
 record YeuCau(DateTime Nhan, DateTime Tra, int Lon, int Nho, string Loai);
 
+/// <summary>
+/// Control của Quản lý đặt phòng: nhận yêu cầu từ API, kiểm tra quyền/dữ liệu và điều phối Entity trong giao dịch.
+/// Các phần partial ở file khác vẫn thuộc cùng một class DieuKhienDatPhong.
+/// </summary>
 sealed partial class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
 {
+    /// <summary>
+    /// Lấy mã và tên khách để giao diện hiển thị danh sách chọn khách khi tạo đặt phòng.
+    /// </summary>
     public DataTable Khach() => db.Doc("SELECT id,CONCAT(full_name,' · ',COALESCE(identity_card,'')) AS ten FROM Guest ORDER BY full_name");
+    /// <summary>
+    /// Lấy danh sách loại phòng phục vụ bộ lọc và cổng đặt phòng trực tuyến.
+    /// </summary>
     public DataTable Loai() => db.Doc("SELECT id,name FROM RoomType ORDER BY name");
+    /// <summary>
+    /// Lấy danh sách đặt phòng kèm khách, các phòng, ngày lưu trú và trạng thái để hiển thị.
+    /// </summary>
     public DataTable LichSu() => db.Doc("""
         SELECT b.id AS 'Mã đặt',g.full_name AS 'Khách',
         GROUP_CONCAT(r.room_number ORDER BY r.room_number) AS 'Phòng',
@@ -18,12 +34,19 @@ sealed partial class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
         GROUP BY b.id ORDER BY b.id DESC
         """);
 
+    /// <summary>
+    /// UC4.1: kiểm tra thời gian/số khách rồi yêu cầu Entity Room tìm phòng trống, kèm giá tạm tính.
+    /// Khi sửa, boQuaDatPhong là mã lượt đặt cần loại trừ để không tự báo trùng với chính mình.
+    /// </summary>
     public DataTable Tim(YeuCau y,int boQuaDatPhong=0)
     {
         KiemTraYeuCau(y);
         return Room.DanhSachPhongTrong(db,y,boQuaDatPhong);
     }
 
+    /// <summary>
+    /// Chặn ngày nhận ở quá khứ, ngày trả không sau ngày nhận và số khách không hợp lệ.
+    /// </summary>
     internal static void KiemTraYeuCau(YeuCau y)
     {
         if (y.Nhan != y.Nhan.Date || y.Tra != y.Tra.Date ||
@@ -33,6 +56,10 @@ sealed partial class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
             throw new Exception("Số khách không hợp lệ.");
     }
 
+    /// <summary>
+    /// UC4.2: kiểm tra quyền và dữ liệu đầu vào, mở giao dịch, khóa phòng theo ID, đọc/tạo khách và gọi Booking.taoDatPhong().
+    /// Trả mã đặt phòng mới; nếu bất kỳ bước nào lỗi thì rollback cả đặt phòng, chi tiết và hồ sơ khách vừa tạo.
+    /// </summary>
     public long Tao(YeuCau y, int[] ids, int guest, string[] profile, decimal coc, string nguon, string note)
     {
         if (nv.VaiTro is not ("Quản lý" or "Lễ tân"))
@@ -55,6 +82,10 @@ sealed partial class DieuKhienDatPhong(CoSoDuLieu db, NhanVien nv)
     }
 }
 
+/// <summary>
+/// Entity đại diện một lượt đặt phòng; quản lý ngày lưu trú, số khách, nguồn đặt, cọc và trạng thái.
+/// Phần này hiện thực tạo đặt phòng; sửa/hủy và ghi nhận dịch vụ nằm ở các phần partial khác của cùng class.
+/// </summary>
 sealed partial class Booking
 {
     readonly CoSoDuLieu db;
@@ -76,12 +107,20 @@ sealed partial class Booking
     public double? CancelFee { get; private set; }
     public string Note { get; private set; } = "";
 
+    /// <summary>
+    /// Khởi tạo ngữ cảnh Booking từ mã BookingDetail để kiểm tra lưu trú và ghi nhận dịch vụ cho đúng phòng.
+    /// detail là mã chi tiết lưu trú, không phải mã Booking.
+    /// </summary>
     public Booking(CoSoDuLieu db, int detail)
     {
         this.db = db;
         this.detail = detail;
     }
 
+    /// <summary>
+    /// Chuẩn bị đối tượng đặt phòng mới với khách, nhân viên, lịch, các phòng, cọc và ghi chú.
+    /// Nguồn online có nhân viên null và trạng thái pending; trực tiếp/điện thoại có trạng thái confirmed.
+    /// </summary>
     public Booking(CoSoDuLieu db, Guest guest, NhanVien? employee, YeuCau y,
         IReadOnlyList<Room> rooms, decimal deposit, string source, string note)
     {
@@ -91,6 +130,10 @@ sealed partial class Booking
     }
 
     // CD Booking.taoDatPhong(): boolean. Control đã mở giao dịch và khóa phòng.
+    /// <summary>
+    /// Method nghiệp vụ theo CD, dùng cho UC4.2 và UC4.6: kiểm tra cọc theo nguồn đặt, phòng trống và tổng sức chứa.
+    /// Lưu Booking/BookingDetail, cập nhật Room; trả true khi có mã mới. Control chịu trách nhiệm mở và kết thúc giao dịch.
+    /// </summary>
     public bool taoDatPhong()
     {
         if (guest is null || (employee is null && Source!="online") || rooms.Count == 0 || Id != 0) return false;

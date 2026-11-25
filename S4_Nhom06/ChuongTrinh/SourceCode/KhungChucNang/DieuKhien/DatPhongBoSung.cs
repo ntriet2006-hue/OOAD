@@ -2,17 +2,30 @@ using System.Data;
 using System.Net.Mail;
 
 // UC4.3–UC4.6: Boundary -> Control -> Booking -> Room theo SD 3.1.34–37.
+/// <summary>
+/// Phần Control mở rộng cho UC4.3–UC4.6; cùng một class với DieuKhienDatPhong trong DatPhong.cs.
+/// Giao diện/API gọi Control; Control điều phối Booking và Room theo SD, không tự thay thế nghiệp vụ của Entity.
+/// </summary>
 sealed partial class DieuKhienDatPhong
 {
+    /// <summary>
+    /// Chỉ cho Quản lý hoặc Lễ tân sử dụng các thao tác quản lý đặt phòng nội bộ.
+    /// </summary>
     void QuyenDatPhong()
     {
         if(nv.VaiTro is not ("Quản lý" or "Lễ tân"))throw new Exception("Không có quyền quản lý đặt phòng.");
     }
+    /// <summary>
+    /// Đọc Booking và trả chi tiết cho giao diện; nếu mở để sửa thì kiểm tra trạng thái cho phép sửa trước.
+    /// </summary>
     public object ChiTietDatPhong(int id,bool deSua=false)
     {
         QuyenDatPhong();var b=Booking.DocDatPhong(db,id);
         if(deSua)b.KiemTraChoSua();return b.ThongTin();
     }
+    /// <summary>
+    /// UC4.5: kiểm tra bộ lọc rồi yêu cầu Booking tìm theo mã, khách, số phòng, khoảng ngày và trạng thái.
+    /// </summary>
     public DataTable TimKiemDatPhong(string tuKhoa,DateTime? tuNgay,DateTime? denNgay,string trangThai)
     {
         QuyenDatPhong();
@@ -20,6 +33,10 @@ sealed partial class DieuKhienDatPhong
             trangThai is not ("" or "pending" or "confirmed" or "checked_in" or "checked_out" or "cancelled"))throw new Exception("Tiêu chí tìm kiếm không hợp lệ.");
         return Booking.TimKiem(db,tuKhoa.Trim(),tuNgay,denNgay,trangThai);
     }
+    /// <summary>
+    /// UC4.3: kiểm tra quyền/dữ liệu, khóa Booking trong giao dịch, chuẩn bị thông tin mới và gọi suaDatPhong().
+    /// Trả chi tiết sau cập nhật; có lỗi trùng phòng hoặc trạng thái thì toàn bộ thay đổi được rollback.
+    /// </summary>
     public object SuaDatPhong(int maDatPhong,YeuCau yeuCau,int[] maPhong,string ghiChu)
     {
         QuyenDatPhong();KiemTraYeuCau(yeuCau);
@@ -30,17 +47,29 @@ sealed partial class DieuKhienDatPhong
             if(!b.suaDatPhong())throw new Exception("Không thể cập nhật đặt phòng.");return b.ThongTin();
         });
     }
+    /// <summary>
+    /// Chỉ tìm phòng cho Booking được phép sửa; loại trừ lịch của chính Booking để vẫn chọn lại phòng cũ.
+    /// </summary>
     public DataTable PhongDeSua(int id,YeuCau y){QuyenDatPhong();Booking.DocDatPhong(db,id).KiemTraChoSua();return Tim(y,id);}
+    /// <summary>
+    /// Kiểm tra Booking có được hủy không và trả phí/cọc cần hoàn để người dùng xem trước; chưa thay đổi dữ liệu.
+    /// </summary>
     public object XemPhiHuy(int id)
     {
         QuyenDatPhong();var b=Booking.DocDatPhong(db,id);b.KiemTraChoHuy();return b.KetQuaHuy();
     }
+    /// <summary>
+    /// UC4.4: bắt buộc lý do hợp lệ, khóa Booking và gọi huyDatPhong() trong giao dịch; trả phí/cọc cần hoàn.
+    /// </summary>
     public object HuyDatPhong(int maDatPhong,string lyDo)
     {
         QuyenDatPhong();lyDo=lyDo.Trim();if(lyDo.Length is 0 or >255)throw new Exception("Nhập lý do hủy từ 1 đến 255 ký tự.");
         return db.Luu(()=>{var b=Booking.DocDatPhong(db,maDatPhong,true);b.KiemTraChoHuy();b.ChuanBiHuy(lyDo);
             if(!b.huyDatPhong())throw new Exception("Không thể hủy đặt phòng.");return b.KetQuaHuy();});
     }
+    /// <summary>
+    /// UC4.6: gom các phòng trống theo loại, trả số phòng còn, sức chứa và giá mỗi đêm cho cổng khách hàng.
+    /// </summary>
     public object LoaiPhongTrucTuyen(YeuCau y)
     {
         var available=Tim(y);
@@ -48,6 +77,10 @@ sealed partial class DieuKhienDatPhong
             name=g.Key,available=g.Count(),price=Convert.ToDecimal(g.First()["Đơn giá"]),capacity=Convert.ToInt32(g.First()["Sức chứa"])
         }).ToArray();
     }
+    /// <summary>
+    /// UC4.6: kiểm tra liên hệ, khóa và chọn đủ phòng trống, tạo khách rồi gọi Booking.taoDatPhong() trong giao dịch.
+    /// Sau commit mới tạo tệp email xác nhận; lỗi ghi email vẫn trả mã Booking đã lưu để tránh khách đặt lại ngoài ý muốn.
+    /// </summary>
     public object DatPhongTrucTuyen(YeuCau yeuCau,int maLoaiPhong,int soPhong,string hoTen,string dienThoai,string email,string yeuCauDacBiet)
     {
         KiemTraYeuCau(yeuCau);hoTen=hoTen.Trim();dienThoai=dienThoai.Trim();email=email.Trim();yeuCauDacBiet=yeuCauDacBiet.Trim();

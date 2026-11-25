@@ -1,4 +1,8 @@
 // Thuộc tính và chữ ký method theo mục 1.5.4 của báo cáo.
+/// <summary>
+/// Phần thuộc tính hồ sơ đầy đủ của cùng Entity Guest theo CD, được nạp bởi Guest.Doc khi đặt phòng.
+/// capNhatHoSo vẫn là khung UC3.2, chưa hoàn thiện nghiệp vụ trong demo.
+/// </summary>
 sealed partial record Guest
 {
     /// <summary>Họ tên khách hàng.</summary>

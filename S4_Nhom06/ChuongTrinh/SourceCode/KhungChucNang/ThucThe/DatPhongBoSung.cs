@@ -3,6 +3,9 @@ using System.Net.Mail;
 using System.Text;
 
 // Nhan/tra phong thuoc UC5, chua trien khai. UC4 duoc xu ly trong KhungChucNang/ThucThe/DatPhongBoSung.cs.
+/// <summary>
+/// Phần khai báo method nhận/trả phòng thuộc UC5 trong CD; hiện mới là khung, không dùng trong demo UC4.
+/// </summary>
 sealed partial class Booking
 {
     /// <summary>Thực hiện thủ tục nhận phòng. Khung theo CD, chưa triển khai nghiệp vụ.</summary>
@@ -18,9 +21,15 @@ sealed partial class Booking
     }
 }
 
+/// <summary>
+/// Phần Entity Booking cho sửa, hủy, tìm kiếm và email; vẫn là cùng class Booking trong DatPhong.cs.
+/// </summary>
 sealed partial class Booking
 {
     int[] phongMoi=[];
+    /// <summary>
+    /// Đọc dữ liệu một lượt đặt từ MySQL; khoa=true dùng FOR UPDATE trong giao dịch trước khi sửa/hủy.
+    /// </summary>
     public static Booking DocDatPhong(CoSoDuLieu db,int id,bool khoa=false)
     {
         var rows=db.Doc("SELECT * FROM Booking WHERE id=@p0"+(khoa?" FOR UPDATE":""),id).Rows;
@@ -29,15 +38,31 @@ sealed partial class Booking
           NumAdults=(int)r["num_adults"],NumChildren=Convert.ToInt32(r["num_children"]),Source=(string)r["source"],Deposit=Convert.ToDouble(r["deposit"]),
           Status=(string)r["status"],CancelReason=r["cancel_reason"].ToString(),CancelFee=r["cancel_fee"]==DBNull.Value?null:Convert.ToDouble(r["cancel_fee"]),Note=r["note"].ToString()!};
     }
+    /// <summary>
+    /// Chỉ cho sửa lượt pending hoặc confirmed; chặn lượt đã nhận, đã trả hoặc đã hủy.
+    /// </summary>
     public void KiemTraChoSua(){if(Status is not ("pending" or "confirmed"))throw new Exception("Đặt phòng không còn ở trạng thái cho phép chỉnh sửa");}
+    /// <summary>
+    /// Chặn hủy lượt đang lưu trú và các trạng thái ngoài pending/confirmed; lượt đang ở phải xử lý qua trả phòng.
+    /// </summary>
     public void KiemTraChoHuy()
     {
         if(Status=="checked_in")throw new Exception("Không thể hủy đặt phòng đang lưu trú. Vui lòng thực hiện trả phòng");
         if(Status is not ("pending" or "confirmed"))throw new Exception("Đặt phòng không còn ở trạng thái cho phép hủy.");
     }
+    /// <summary>
+    /// Đưa lịch, số khách, danh sách phòng và ghi chú mới vào đối tượng; bước này chưa ghi MySQL.
+    /// </summary>
     internal void ChuanBiSua(YeuCau y,int[] ids,string note){CheckInDate=y.Nhan;CheckOutDate=y.Tra;NumAdults=y.Lon;NumChildren=y.Nho;phongMoi=ids.Distinct().Order().ToArray();Note=note.Trim();}
+    /// <summary>
+    /// Lấy mã các phòng đang thuộc Booking để khóa cả phòng cũ/mới và đồng bộ sau khi sửa hoặc hủy.
+    /// </summary>
     int[] PhongCu()=>db.Doc("SELECT room_id FROM BookingDetail WHERE booking_id=@p0 ORDER BY room_id",Id).AsEnumerable().Select(r=>(int)r[0]).ToArray();
     // CD giu nguyen chu ky suaDatPhong(): boolean.
+    /// <summary>
+    /// Method CD cho UC4.3: khóa phòng theo ID, gọi Room.kiemTraPhongTrong hai tham số và kiểm tra sức chứa.
+    /// Tính lại giá theo số đêm, cập nhật Booking/BookingDetail, đồng bộ trạng thái phòng; trả true nếu hoàn tất trong giao dịch.
+    /// </summary>
     public bool suaDatPhong()
     {
         KiemTraChoSua();if(phongMoi.Length==0)throw new Exception("Chọn ít nhất một phòng.");
@@ -59,15 +84,28 @@ sealed partial class Booking
             else db.Ghi("INSERT INTO BookingDetail(booking_id,room_id,price_per_night) VALUES(@p0,@p1,@p2)",Id,r.Id,r.BasePrice);}
         foreach(var r in locked)r.DongBoSauDatPhong();return true;
     }
+    /// <summary>
+    /// Gắn lý do hủy vào đối tượng và chuẩn bị phí 0 theo chính sách demo đã chọn; chưa ghi dữ liệu.
+    /// </summary>
     internal void ChuanBiHuy(string lyDo){CancelReason=lyDo;CancelFee=0;}
     // Chinh sach demo do nguoi dung chon: mien phi huy, hoan toan bo coc.
+    /// <summary>
+    /// Method CD cho UC4.4: kiểm tra trạng thái, lưu cancelled/lý do/phí, giữ lịch sử chi tiết và số cọc.
+    /// Đồng bộ các phòng liên quan; không làm mất trạng thái đang ở hoặc lịch đặt khác còn hiệu lực.
+    /// </summary>
     public bool huyDatPhong()
     {
         KiemTraChoHuy();var rooms=PhongCu().Select(id=>Room.DocVaKhoa(db,id)).ToList();CancelFee=0;
         db.Ghi("UPDATE Booking SET status='cancelled',cancel_reason=@p0,cancel_fee=0 WHERE id=@p1",CancelReason,Id);Status="cancelled";
         foreach(var r in rooms)r.DongBoSauDatPhong();return true;
     }
+    /// <summary>
+    /// Trả phí hủy 0 và toàn bộ deposit là số tiền cần hoàn theo chính sách demo; không thực hiện chuyển tiền.
+    /// </summary>
     public object KetQuaHuy()=>new{id=Id,fee=0m,refund=(decimal)Deposit,reason=CancelReason,policy="Miễn phí hủy, hoàn toàn bộ tiền cọc. Số tiền hiển thị là khoản cần hoàn, chưa thực hiện chuyển tiền."};
+    /// <summary>
+    /// Tổng hợp dữ liệu Booking, tên khách, danh sách phòng và tiền phòng tạm tính để giao diện xem chi tiết.
+    /// </summary>
     public object ThongTin()
     {
         var d=db.Doc("SELECT d.room_id AS id,r.room_number AS number,d.price_per_night AS price,t.capacity,t.name AS type FROM BookingDetail d JOIN Room r ON r.id=d.room_id JOIN RoomType t ON t.id=r.room_type_id WHERE d.booking_id=@p0 ORDER BY r.id",Id);
@@ -76,6 +114,9 @@ sealed partial class Booking
             total=d.AsEnumerable().Sum(r=>(decimal)r["price"])*(CheckOutDate-CheckInDate).Days,
             rooms=d.AsEnumerable().Select(r=>new{id=(int)r["id"],number=(string)r["number"],price=(decimal)r["price"],capacity=(int)r["capacity"],type=(string)r["type"]}).ToArray()};
     }
+    /// <summary>
+    /// UC4.5: truy vấn theo mã/tên khách/số phòng, khoảng lưu trú giao với bộ lọc ngày và trạng thái; trả bảng rỗng nếu không có kết quả.
+    /// </summary>
     public static DataTable TimKiem(CoSoDuLieu db,string word,DateTime? from,DateTime? to,string status)=>db.Doc("""
         SELECT b.id AS 'Mã đặt',g.full_name AS 'Khách',GROUP_CONCAT(r.room_number ORDER BY r.room_number) AS 'Phòng',
           b.check_in_date AS 'Ngày nhận',b.check_out_date AS 'Ngày trả',
@@ -86,6 +127,10 @@ sealed partial class Booking
           AND (@p1 IS NULL OR b.check_out_date>=@p1) AND (@p2 IS NULL OR b.check_in_date<=@p2) AND (@p3='' OR b.status=@p3)
         GROUP BY b.id ORDER BY b.id DESC
         """,word,from,to,status);
+    /// <summary>
+    /// Tạo email xác nhận có mã đặt phòng sau khi đã commit và lưu dưới dạng tệp .eml trong thư mục riêng theo mã.
+    /// Chỉ lưu cục bộ phục vụ demo theo lựa chọn người dùng, không gửi email qua Internet.
+    /// </summary>
     public string LuuEmailXacNhan(string email,string name)
     {
         var folder=Environment.GetEnvironmentVariable("OOAD_EMAIL_DIR")??Path.Combine(AppContext.BaseDirectory,"ThuXacNhan");folder=Path.Combine(folder,$"DP{Id:D4}");Directory.CreateDirectory(folder);
